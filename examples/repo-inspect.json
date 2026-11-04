@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 2,
+  "name": "repo-inspect",
+  "description": "Inspect a code repository and summarize its main modules. Pipeline: scout reads README + manifests + top-level layout and identifies the 4 most important module areas -> 4 parallel isolated inspectors each deep-read one area (key files, key APIs, dependencies, role), capped to a small file sample -> synthesizer integrates into a Markdown architecture/module overview artifact. Read-only (read/grep/find/ls only); reusable for any repo via input.repo (absolute path) and input.task.",
+  "entry": "scout",
+  "reducers": {
+    "working.module_summaries": "collect"
+  },
+  "initialState": {
+    "control": {},
+    "working": {},
+    "result": {}
+  },
+  "nodes": {
+    "scout": {
+      "type": "agent",
+      "description": "Read README + package manifest + top-level layout; identify the repo's language, purpose, and the 4 most important module areas.",
+      "prompt": "You are the repository Scout. Inspect the repository at {{input.repo}} (use absolute paths).\n\nGoal: understand what this repo is and identify its MAIN module areas.\n\nDo now: read the README (README.md or README-zh.md), the package manifest (pyproject.toml / package.json / Cargo.toml / go.mod / etc.), and list the top-level directories and the main source package's subdirectories (use ls/find/grep). Read AT MOST 8 files total.\n\nThen choose the 4 most important top-level module areas to summarize. If there are more than 4 meaningful areas, group related smaller ones together (e.g. cli+utils, or serving+webui). If there are fewer, split a large one. Always return EXACTLY 4, ordered by importance. For each, give its name, its path (relative to the repo root), and a one-line role.\n\nTask framing: {{input.task}}\n\nReturn the plan through the node-output tool with the required shape.",
+      "readOnly": true,
+      "output": "working.plan",
+      "response": {
+        "maxBytes": 12288,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "repo_name": { "type": "string", "maxLength": 120 },
+            "language": { "type": "string", "maxLength": 60 },
+            "purpose": { "type": "string", "maxLength": 600 },
+            "modules": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "maxLength": 120 },
+                  "path": { "type": "string", "maxLength": 300 },
+                  "role": { "type": "string", "maxLength": 400 }
+                },
+                "required": ["name", "path", "role"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["repo_name", "language", "purpose", "modules"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": { "mode": "isolated" },
+      "retry": { "maxAttempts": 2, "backoffMs": 600 },
+      "idempotent": true,
+      "limits": { "timeoutMs": 240000, "maxTurns": 12, "maxCostUsd": 0.4 }
+    },
+    "module_a": {
+      "type": "agent",
+      "description": "Deep-inspect the 1st (most important) module area from the plan.",
+      "reads": ["working.plan"],
+      "prompt": "You are an isolated module Inspector. The plan in Selected shared state lists 4 module areas in importance order. Inspect ONLY the 1st module area (the first entry) at the repository {{input.repo}}.\n\nUse read/grep/find/ls with absolute paths under {{input.repo}}. SAMPLE HARD: read AT MOST 8 files total — the area's __init__/index/entry file and the 5-6 most central source files (use grep/ls first to choose them). Stop reading once you have enough to summarize; never read the whole area. Ground every claim in files you actually opened.\n\nReturn your findings through the node-output tool with the required shape: the module name and path, its role, its key files, its key APIs/classes/functions, what it depends on (internal modules / external libs), and a concise summary.",
+      "readOnly": true,
+      "output": "working.module_summaries",
+      "response": {
+        "maxBytes": 12288,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "module": { "type": "string", "maxLength": 120 },
+            "path": { "type": "string", "maxLength": 300 },
+            "role": { "type": "string", "maxLength": 500 },
+            "key_files": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 200 } },
+            "key_apis": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 200 } },
+            "depends_on": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 120 } },
+            "summary": { "type": "string" }
+          },
+          "required": ["module", "path", "role", "key_files", "key_apis", "depends_on", "summary"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": { "mode": "isolated" },
+      "retry": { "maxAttempts": 2, "backoffMs": 600 },
+      "idempotent": true,
+      "onError": { "strategy": "continue" },
+      "limits": { "timeoutMs": 360000, "maxTurns": 12, "maxCostUsd": 0.5 }
+    },
+    "module_b": {
+      "type": "agent",
+      "description": "Deep-inspect the 2nd module area from the plan.",
+      "reads": ["working.plan"],
+      "prompt": "You are an isolated module Inspector. The plan in Selected shared state lists 4 module areas in importance order. Inspect ONLY the 2nd module area at the repository {{input.repo}}.\n\nUse read/grep/find/ls with absolute paths under {{input.repo}}. SAMPLE HARD: read AT MOST 8 files total — the area's __init__/index/entry file and the 5-6 most central source files (use grep/ls first to choose them). Stop reading once you have enough to summarize; never read the whole area. Ground every claim in files you actually opened.\n\nReturn your findings through the node-output tool with the required shape: the module name and path, its role, its key files, its key APIs/classes/functions, what it depends on (internal modules / external libs), and a concise summary.",
+      "readOnly": true,
+      "output": "working.module_summaries",
+      "response": {
+        "maxBytes": 12288,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "module": { "type": "string", "maxLength": 120 },
+            "path": { "type": "string", "maxLength": 300 },
+            "role": { "type": "string", "maxLength": 500 },
+            "key_files": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 200 } },
+            "key_apis": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 200 } },
+            "depends_on": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 120 } },
+            "summary": { "type": "string" }
+          },
+          "required": ["module", "path", "role", "key_files", "key_apis", "depends_on", "summary"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": { "mode": "isolated" },
+      "retry": { "maxAttempts": 2, "backoffMs": 600 },
+      "idempotent": true,
+      "onError": { "strategy": "continue" },
+      "limits": { "timeoutMs": 360000, "maxTurns": 12, "maxCostUsd": 0.5 }
+    },
+    "module_c": {
+      "type": "agent",
+      "description": "Deep-inspect the 3rd module area from the plan.",
+      "reads": ["working.plan"],
+      "prompt": "You are an isolated module Inspector. The plan in Selected shared state lists 4 module areas in importance order. Inspect ONLY the 3rd module area at the repository {{input.repo}}.\n\nUse read/grep/find/ls with absolute paths under {{input.repo}}. SAMPLE HARD: read AT MOST 8 files total — the area's __init__/index/entry file and the 5-6 most central source files (use grep/ls first to choose them). Stop reading once you have enough to summarize; never read the whole area. Ground every claim in files you actually opened.\n\nReturn your findings through the node-output tool with the required shape: the module name and path, its role, its key files, its key APIs/classes/functions, what it depends on (internal modules / external libs), and a concise summary.",
+      "readOnly": true,
+      "output": "working.module_summaries",
+      "response": {
+        "maxBytes": 12288,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "module": { "type": "string", "maxLength": 120 },
+            "path": { "type": "string", "maxLength": 300 },
+            "role": { "type": "string", "maxLength": 500 },
+            "key_files": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 200 } },
+            "key_apis": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 200 } },
+            "depends_on": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 120 } },
+            "summary": { "type": "string" }
+          },
+          "required": ["module", "path", "role", "key_files", "key_apis", "depends_on", "summary"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": { "mode": "isolated" },
+      "retry": { "maxAttempts": 2, "backoffMs": 600 },
+      "idempotent": true,
+      "onError": { "strategy": "continue" },
+      "limits": { "timeoutMs": 360000, "maxTurns": 12, "maxCostUsd": 0.5 }
+    },
+    "module_d": {
+      "type": "agent",
+      "description": "Deep-inspect the 4th module area from the plan.",
+      "reads": ["working.plan"],
+      "prompt": "You are an isolated module Inspector. The plan in Selected shared state lists 4 module areas in importance order. Inspect ONLY the 4th module area at the repository {{input.repo}}.\n\nUse read/grep/find/ls with absolute paths under {{input.repo}}. SAMPLE HARD: read AT MOST 8 files total — the area's __init__/index/entry file and the 5-6 most central source files (use grep/ls first to choose them). Stop reading once you have enough to summarize; never read the whole area. Ground every claim in files you actually opened.\n\nReturn your findings through the node-output tool with the required shape: the module name and path, its role, its key files, its key APIs/classes/functions, what it depends on (internal modules / external libs), and a concise summary.",
+      "readOnly": true,
+      "output": "working.module_summaries",
+      "response": {
+        "maxBytes": 12288,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "module": { "type": "string", "maxLength": 120 },
+            "path": { "type": "string", "maxLength": 300 },
+            "role": { "type": "string", "maxLength": 500 },
+            "key_files": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 200 } },
+            "key_apis": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 200 } },
+            "depends_on": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 120 } },
+            "summary": { "type": "string" }
+          },
+          "required": ["module", "path", "role", "key_files", "key_apis", "depends_on", "summary"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": { "mode": "isolated" },
+      "retry": { "maxAttempts": 2, "backoffMs": 600 },
+      "idempotent": true,
+      "onError": { "strategy": "continue" },
+      "limits": { "timeoutMs": 360000, "maxTurns": 12, "maxCostUsd": 0.5 }
+    },
+    "synthesizer": {
+      "type": "agent",
+      "description": "Integrate the per-module summaries into a coherent Markdown architecture/module overview.",
+      "reads": ["working.plan", "working.module_summaries"],
+      "prompt": "You are the repository Synthesizer. Using the plan and the per-module summaries in Selected shared state, write a clear, accurate overview of the repository's main modules.\n\nTask framing: {{input.task}}\n\nStructure the Markdown report:\n- A one-paragraph repo overview (what it is, language, purpose).\n- A section per main module: its role, key files, key APIs/classes, dependencies, and a concise summary. Preserve the real file paths and names the inspectors found.\n- A short 'How the modules fit together' note describing the main cross-module relationships / data flow, based only on the dependencies the inspectors reported.\n\nDo not invent files, APIs, or paths that do not appear in the summaries. Return clean Markdown only.",
+      "readOnly": true,
+      "output": "result.report_artifact",
+      "response": {
+        "format": "text",
+        "storage": "artifact",
+        "mediaType": "text/markdown",
+        "maxBytes": 32768
+      },
+      "thinking": "off",
+      "context": { "mode": "isolated" },
+      "retry": { "maxAttempts": 2, "backoffMs": 600 },
+      "idempotent": true,
+      "limits": { "timeoutMs": 240000, "maxTurns": 8, "maxCostUsd": 0.5 }
+    }
+  },
+  "edges": [
+    { "from": "scout", "to": ["module_a", "module_b", "module_c", "module_d"] },
+    { "from": ["module_a", "module_b", "module_c", "module_d"], "to": "synthesizer" },
+    { "from": "synthesizer", "to": "__end__" }
+  ],
+  "limits": {
+    "maxSteps": 10,
+    "maxNodeRuns": 16,
+    "maxConcurrency": 4,
+    "maxCostUsd": 3,
+    "timeoutMs": 1800000,
+    "maxStateBytes": 131072,
+    "maxPromptBytes": 32768
+  },
+  "policy": {
+    "allowNonInteractive": true,
+    "allowNonInteractiveMutations": false
+  },
+  "result": {
+    "paths": ["result.report_artifact", "working.plan"],
+    "includeState": false,
+    "maxBytes": 16384
+  }
+}

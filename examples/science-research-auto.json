@@ -1,0 +1,767 @@
+{
+  "schemaVersion": 2,
+  "name": "science-research-auto",
+  "description": "Fully non-interactive science-research graph. Replaces the human scope gate with an isolated auto-reviewer, and hardens every control-flow handoff with response.schema so router inputs (scope decision, critical-conflict flag, sufficiency/fatal flags) and structured branch cards cannot reach downstream nodes in a malformed shape. Keeps round-scoped working state, per-superstep collection of parallel branch results, assistant-only shared debate messages, prompt preflight budgets, compact cross-round memory, and artifact-backed final reports.",
+  "entry": "planner",
+  "reducers": {
+    "working.branch_results": "collect"
+  },
+  "initialState": {
+    "research": {
+      "confidence_threshold": 0.7,
+      "max_iterations": 3
+    },
+    "control": {},
+    "memory": {},
+    "working": {},
+    "result": {}
+  },
+  "nodes": {
+    "planner": {
+      "type": "agent",
+      "description": "GENERATE: propose 3 distinct, discriminating investigation angles. Revisited across refinement rounds via a thread session.",
+      "reads": [
+        "memory.last_integration"
+      ],
+      "prompt": "You are the research Planner. Propose exactly 3 DISTINCT investigation angles labeled A, B, C. Use the prior integration summary from Selected shared state when present; target its weakest or most contested claim.\n\nResearch question:\n{{input.task}}\n\nSoft iteration budget: {{research.max_iterations}}.\n\nReturn the angles through the node-output tool with the required shape: three entries labeled A, B, C, each with a target, what it bears on, and whether it is discriminating.",
+      "readOnly": true,
+      "tools": [],
+      "output": "working.plan",
+      "response": {
+        "maxBytes": 8192,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "angles": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": { "type": "string", "enum": ["A", "B", "C"] },
+                  "target": { "type": "string", "maxLength": 300 },
+                  "bears_on": { "type": "string", "maxLength": 300 },
+                  "discriminating": { "type": "boolean" }
+                },
+                "required": ["label", "target", "bears_on", "discriminating"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["angles"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "thread",
+        "threadKey": "planner"
+      },
+      "limits": {
+        "timeoutMs": 120000,
+        "maxTurns": 6,
+        "maxCostUsd": 0.3,
+        "maxPromptBytes": 18432
+      }
+    },
+    "scope_review": {
+      "type": "agent",
+      "purpose": "reviewer",
+      "description": "AUTO GATE (replaces the human scope_gate): an isolated reviewer that self-judges whether the plan is discriminating enough to start the parallel investigation, or should be refined. Runs before any branch executes; once approved, refinement rounds skip this gate because control.scope.decision stays 'approve'.",
+      "reads": [
+        "working.plan"
+      ],
+      "prompt": "You are the Plan Scope Reviewer. Judge the plan in Selected shared state. Approve only when the three angles are distinct, discriminating, and cover the load-bearing controversy; choose refine only for a concrete defect.\n\nResearch question:\n{{input.task}}\n\nReturn your verdict through the node-output tool with the required shape: decision 'approve' or 'refine', plus a short rationale.",
+      "readOnly": true,
+      "tools": [],
+      "output": "control.scope",
+      "response": {
+        "maxBytes": 4096,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "decision": { "type": "string", "enum": ["approve", "refine"] },
+            "rationale": { "type": "string", "maxLength": 500 }
+          },
+          "required": ["decision", "rationale"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 500
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 120000,
+        "maxTurns": 4,
+        "maxCostUsd": 0.3,
+        "maxPromptBytes": 12288
+      }
+    },
+    "branch_a": {
+      "type": "agent",
+      "description": "TEST angle A in an isolated session.",
+      "reads": [
+        "working.plan"
+      ],
+      "prompt": "You are an isolated research Branch Worker. Investigate ONLY angle A from the plan in Selected shared state, using established scientific knowledge.\n\nResearch question:\n{{input.task}}\n\nReturn your findings through the node-output tool with the required shape: angle \"A\", a conclusion, the supporting evidence, how it bears on the hypotheses, and limitations.",
+      "readOnly": true,
+      "tools": [],
+      "output": "working.branch_results",
+      "response": {
+        "maxBytes": 8192,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "angle": { "type": "string", "enum": ["A"] },
+            "conclusion": { "type": "string", "maxLength": 1000 },
+            "evidence": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "claim": { "type": "string", "maxLength": 400 },
+                  "quality": { "type": "string", "enum": ["low", "moderate", "high"] },
+                  "directness": { "type": "string", "enum": ["direct", "indirect"] }
+                },
+                "required": ["claim", "quality", "directness"],
+                "additionalProperties": false
+              }
+            },
+            "hypothesis_impacts": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "hypothesis": { "type": "string", "maxLength": 300 },
+                  "relation": { "type": "string", "enum": ["supports", "contradicts", "inconclusive"] },
+                  "strength": { "type": "string", "enum": ["weak", "moderate", "strong"] },
+                  "rationale": { "type": "string", "maxLength": 400 }
+                },
+                "required": ["hypothesis", "relation", "strength", "rationale"],
+                "additionalProperties": false
+              }
+            },
+            "limitations": {
+              "type": "array",
+              "maxItems": 8,
+              "items": { "type": "string", "maxLength": 300 }
+            }
+          },
+          "required": ["angle", "conclusion", "evidence", "hypothesis_impacts", "limitations"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "onError": {
+        "strategy": "continue"
+      },
+      "limits": {
+        "timeoutMs": 120000,
+        "maxTurns": 6,
+        "maxCostUsd": 0.3,
+        "maxPromptBytes": 18432
+      }
+    },
+    "branch_b": {
+      "type": "agent",
+      "description": "TEST angle B in an isolated session.",
+      "reads": [
+        "working.plan"
+      ],
+      "prompt": "You are an isolated research Branch Worker. Investigate ONLY angle B from the plan in Selected shared state, using established scientific knowledge.\n\nResearch question:\n{{input.task}}\n\nReturn your findings through the node-output tool with the required shape: angle \"B\", a conclusion, the supporting evidence, how it bears on the hypotheses, and limitations.",
+      "readOnly": true,
+      "tools": [],
+      "output": "working.branch_results",
+      "response": {
+        "maxBytes": 8192,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "angle": { "type": "string", "enum": ["B"] },
+            "conclusion": { "type": "string", "maxLength": 1000 },
+            "evidence": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "claim": { "type": "string", "maxLength": 400 },
+                  "quality": { "type": "string", "enum": ["low", "moderate", "high"] },
+                  "directness": { "type": "string", "enum": ["direct", "indirect"] }
+                },
+                "required": ["claim", "quality", "directness"],
+                "additionalProperties": false
+              }
+            },
+            "hypothesis_impacts": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "hypothesis": { "type": "string", "maxLength": 300 },
+                  "relation": { "type": "string", "enum": ["supports", "contradicts", "inconclusive"] },
+                  "strength": { "type": "string", "enum": ["weak", "moderate", "strong"] },
+                  "rationale": { "type": "string", "maxLength": 400 }
+                },
+                "required": ["hypothesis", "relation", "strength", "rationale"],
+                "additionalProperties": false
+              }
+            },
+            "limitations": {
+              "type": "array",
+              "maxItems": 8,
+              "items": { "type": "string", "maxLength": 300 }
+            }
+          },
+          "required": ["angle", "conclusion", "evidence", "hypothesis_impacts", "limitations"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "onError": {
+        "strategy": "continue"
+      },
+      "limits": {
+        "timeoutMs": 120000,
+        "maxTurns": 6,
+        "maxCostUsd": 0.3,
+        "maxPromptBytes": 18432
+      }
+    },
+    "branch_c": {
+      "type": "agent",
+      "description": "TEST angle C in an isolated session.",
+      "reads": [
+        "working.plan"
+      ],
+      "prompt": "You are an isolated research Branch Worker. Investigate ONLY angle C from the plan in Selected shared state, using established scientific knowledge.\n\nResearch question:\n{{input.task}}\n\nReturn your findings through the node-output tool with the required shape: angle \"C\", a conclusion, the supporting evidence, how it bears on the hypotheses, and limitations.",
+      "readOnly": true,
+      "tools": [],
+      "output": "working.branch_results",
+      "response": {
+        "maxBytes": 8192,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "angle": { "type": "string", "enum": ["C"] },
+            "conclusion": { "type": "string", "maxLength": 1000 },
+            "evidence": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "claim": { "type": "string", "maxLength": 400 },
+                  "quality": { "type": "string", "enum": ["low", "moderate", "high"] },
+                  "directness": { "type": "string", "enum": ["direct", "indirect"] }
+                },
+                "required": ["claim", "quality", "directness"],
+                "additionalProperties": false
+              }
+            },
+            "hypothesis_impacts": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "hypothesis": { "type": "string", "maxLength": 300 },
+                  "relation": { "type": "string", "enum": ["supports", "contradicts", "inconclusive"] },
+                  "strength": { "type": "string", "enum": ["weak", "moderate", "strong"] },
+                  "rationale": { "type": "string", "maxLength": 400 }
+                },
+                "required": ["hypothesis", "relation", "strength", "rationale"],
+                "additionalProperties": false
+              }
+            },
+            "limitations": {
+              "type": "array",
+              "maxItems": 8,
+              "items": { "type": "string", "maxLength": 300 }
+            }
+          },
+          "required": ["angle", "conclusion", "evidence", "hypothesis_impacts", "limitations"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "onError": {
+        "strategy": "continue"
+      },
+      "limits": {
+        "timeoutMs": 120000,
+        "maxTurns": 6,
+        "maxCostUsd": 0.3,
+        "maxPromptBytes": 18432
+      }
+    },
+    "evidence_critic": {
+      "type": "agent",
+      "purpose": "reviewer",
+      "description": "REVIEW: at the barrier, assess evidence quality, conflicts, and limitations across all branch results. Its has_critical_conflicts flag routes into the adversarial debate.",
+      "reads": [
+        "working.branch_results"
+      ],
+      "prompt": "You are the Evidence Critic. Review the current-round branch cards in Selected shared state for evidence quality, cross-branch conflicts, and limitations. Do not invent evidence. Set has_critical_conflicts true only when branches materially contradict each other. Return your assessment through the node-output tool with the required shape.",
+      "readOnly": true,
+      "tools": [],
+      "output": "working.reviewed_evidence",
+      "response": {
+        "maxBytes": 8192,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "strongest_evidence": { "type": "array", "maxItems": 10, "items": { "type": "string", "maxLength": 300 } },
+            "conflicts": { "type": "array", "maxItems": 10, "items": { "type": "string", "maxLength": 300 } },
+            "key_limitations": { "type": "array", "maxItems": 10, "items": { "type": "string", "maxLength": 300 } },
+            "has_critical_conflicts": { "type": "boolean" },
+            "quality_assessment": { "type": "string", "maxLength": 800 }
+          },
+          "required": ["strongest_evidence", "conflicts", "key_limitations", "has_critical_conflicts", "quality_assessment"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 120000,
+        "maxTurns": 6,
+        "maxCostUsd": 0.3,
+        "maxPromptBytes": 24576
+      }
+    },
+    "reset_debate": {
+      "type": "set",
+      "description": "Remove any prior debate transcript/verdict before starting a fresh bounded debate.",
+      "assign": [
+        {
+          "path": "working.debate",
+          "mode": "unset"
+        }
+      ]
+    },
+    "devil_advocate": {
+      "type": "agent",
+      "description": "DEBATE (shared channel): argues the skeptic position against the leading interpretation of the evidence. Writes to the shared debate transcript.",
+      "reads": [
+        "working.reviewed_evidence"
+      ],
+      "prompt": "You are the Devil's Advocate. Use the reviewed evidence in Selected shared state and return the strongest grounded skeptic case. Return JSON with EXACTLY: {\"position\": \"skeptic\", \"strongest_objection\": \"...\", \"weakest_link\": \"...\", \"alternative_interpretation\": \"...\"}.",
+      "readOnly": true,
+      "tools": [],
+      "response": {
+        "format": "json",
+        "maxBytes": 4096,
+        "storeOutput": false
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "shared",
+        "messagesPath": "working.debate.messages",
+        "capture": "assistant-only",
+        "maxMessages": 4,
+        "maxPromptBytes": 8192,
+        "maxStoredMessages": 4
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 120000,
+        "maxTurns": 5,
+        "maxCostUsd": 0.3,
+        "maxPromptBytes": 18432
+      }
+    },
+    "defender": {
+      "type": "agent",
+      "description": "DEBATE (shared channel): reads the skeptic's argument from the shared transcript and mounts a grounded defense of the leading interpretation.",
+      "reads": [
+        "working.reviewed_evidence"
+      ],
+      "prompt": "You are the Defender. The shared transcript contains the skeptic's prior final position. Use it together with reviewed evidence in Selected shared state. Concede what must be conceded and rebut only what the evidence supports. Return JSON with EXACTLY: {\"position\": \"defender\", \"concessions\": [\"...\"], \"rebuttals\": [\"...\"], \"residual_risk\": \"...\"}.",
+      "readOnly": true,
+      "tools": [],
+      "response": {
+        "format": "json",
+        "maxBytes": 4096,
+        "storeOutput": false
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "shared",
+        "messagesPath": "working.debate.messages",
+        "capture": "assistant-only",
+        "maxMessages": 4,
+        "maxPromptBytes": 8192,
+        "maxStoredMessages": 4
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 120000,
+        "maxTurns": 5,
+        "maxCostUsd": 0.3,
+        "maxPromptBytes": 18432
+      }
+    },
+    "arbiter": {
+      "type": "agent",
+      "purpose": "reviewer",
+      "description": "DEBATE: reads the full shared debate transcript plus reviewed evidence and rules whether the conflict is resolved, producing an adjusted verdict.",
+      "reads": [
+        "working.reviewed_evidence",
+        "working.debate.messages"
+      ],
+      "prompt": "You are the Debate Arbiter. Read the compact reviewed evidence and the assistant-only debate transcript in Selected shared state. Return your verdict through the node-output tool with the required shape: whether the conflict is resolved, a resolution, an adjusted confidence band, and whether a fatal conflict remains.",
+      "readOnly": true,
+      "tools": [],
+      "output": "working.debate.verdict",
+      "response": {
+        "maxBytes": 6144,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "resolved": { "type": "boolean" },
+            "resolution": { "type": "string", "maxLength": 800 },
+            "adjusted_confidence": { "type": "string", "enum": ["weak", "moderate", "strong"] },
+            "fatal_conflict": { "type": "boolean" }
+          },
+          "required": ["resolved", "resolution", "adjusted_confidence", "fatal_conflict"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 120000,
+        "maxTurns": 5,
+        "maxCostUsd": 0.3,
+        "maxPromptBytes": 24576
+      }
+    },
+    "integrator": {
+      "type": "agent",
+      "description": "INTEGRATE: maps reviewed evidence (and debate verdict, if any) onto hypotheses, assigns confidence bands, and decides sufficiency. Thread node: revisits across refinement rounds. Its sufficient/fatal_conflict flags drive the report-vs-refine-vs-redebate branches.",
+      "reads": [
+        "working.reviewed_evidence",
+        "working.debate.verdict",
+        "research.confidence_threshold"
+      ],
+      "prompt": "You are the Evidence Integrator. Use Selected shared state to map evidence and any debate verdict onto hypotheses and decide whether reporting is justified. Return your integration through the node-output tool with the required shape, including the sufficient and fatal_conflict flags that control the next route.",
+      "readOnly": true,
+      "tools": [],
+      "output": "working.integration",
+      "response": {
+        "maxBytes": 8192,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "hypotheses": {
+              "type": "array",
+              "maxItems": 10,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "claim": { "type": "string", "maxLength": 400 },
+                  "confidence": { "type": "string", "enum": ["unsupported", "weak", "plausible", "moderate", "strong"] },
+                  "net_support": { "type": "string", "enum": ["supports", "contradicts", "inconclusive"] }
+                },
+                "required": ["claim", "confidence", "net_support"],
+                "additionalProperties": false
+              }
+            },
+            "leading": { "type": "string", "maxLength": 500 },
+            "sufficient": { "type": "boolean" },
+            "fatal_conflict": { "type": "boolean" },
+            "open_questions": { "type": "array", "maxItems": 10, "items": { "type": "string", "maxLength": 300 } },
+            "refinement_summary": { "type": "string", "maxLength": 600 }
+          },
+          "required": ["hypotheses", "leading", "sufficient", "fatal_conflict", "open_questions", "refinement_summary"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "thread",
+        "threadKey": "integrator"
+      },
+      "limits": {
+        "timeoutMs": 120000,
+        "maxTurns": 6,
+        "maxCostUsd": 0.3,
+        "maxPromptBytes": 24576
+      }
+    },
+    "bump_round": {
+      "type": "set",
+      "description": "Archive one compact integration summary, then remove the entire round-scoped working state before replanning.",
+      "assign": [
+        {
+          "path": "memory.last_integration",
+          "from": "working.integration",
+          "mode": "overwrite"
+        },
+        {
+          "path": "working",
+          "mode": "unset"
+        }
+      ]
+    },
+    "reporter": {
+      "type": "agent",
+      "description": "REPORT: synthesizes the final research report from the integrated hypotheses, reviewed evidence, and debate verdict.",
+      "reads": [
+        "working.integration",
+        "working.reviewed_evidence",
+        "working.debate.verdict"
+      ],
+      "prompt": "You are the Research Reporter. Produce the final Markdown report using the compact integration, reviewed evidence, and optional debate verdict in Selected shared state.\n\nResearch question:\n{{input.task}}\n\nStructure: lead conclusion and confidence; supporting evidence; limitations/conflicts; open questions. Use honest scientific hedging.",
+      "readOnly": true,
+      "tools": [],
+      "output": "result.report_artifact",
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 120000,
+        "maxTurns": 6,
+        "maxCostUsd": 0.3,
+        "maxPromptBytes": 24576
+      },
+      "response": {
+        "format": "text",
+        "maxBytes": 65536,
+        "storage": "artifact",
+        "mediaType": "text/markdown",
+        "previewBytes": 4096
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": [
+        "branch_a",
+        "branch_b",
+        "branch_c"
+      ],
+      "to": "evidence_critic"
+    },
+    {
+      "from": "reset_debate",
+      "to": "devil_advocate"
+    },
+    {
+      "from": "devil_advocate",
+      "to": "defender"
+    },
+    {
+      "from": "defender",
+      "to": "arbiter"
+    },
+    {
+      "from": "arbiter",
+      "to": "integrator"
+    },
+    {
+      "from": "bump_round",
+      "to": "planner"
+    },
+    {
+      "from": "reporter",
+      "to": "__end__"
+    },
+    {
+      "from": "planner",
+      "cases": [
+        {
+          "when": {
+            "path": "control.scope.decision",
+            "op": "eq",
+            "value": "approve"
+          },
+          "to": [
+            "branch_a",
+            "branch_b",
+            "branch_c"
+          ]
+        }
+      ],
+      "default": "scope_review"
+    },
+    {
+      "from": "scope_review",
+      "cases": [
+        {
+          "when": {
+            "path": "control.scope.decision",
+            "op": "eq",
+            "value": "approve"
+          },
+          "to": [
+            "branch_a",
+            "branch_b",
+            "branch_c"
+          ]
+        }
+      ],
+      "default": "planner"
+    },
+    {
+      "from": "evidence_critic",
+      "cases": [
+        {
+          "when": {
+            "path": "working.reviewed_evidence.has_critical_conflicts",
+            "op": "eq",
+            "value": true
+          },
+          "to": "reset_debate"
+        }
+      ],
+      "default": "integrator"
+    },
+    {
+      "from": "integrator",
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "path": "working.integration.sufficient",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "not": {
+                  "path": "working.integration.fatal_conflict",
+                  "op": "truthy"
+                }
+              }
+            ]
+          },
+          "to": "reporter"
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "path": "working.integration.sufficient",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "path": "working.integration.fatal_conflict",
+                "op": "truthy"
+              }
+            ]
+          },
+          "to": "reset_debate"
+        }
+      ],
+      "default": "bump_round"
+    }
+  ],
+  "limits": {
+    "maxSteps": 40,
+    "maxNodeRuns": 60,
+    "maxConcurrency": 3,
+    "maxCostUsd": 5,
+    "timeoutMs": 3600000,
+    "maxStateBytes": 98304,
+    "maxPromptBytes": 36864
+  },
+  "policy": {
+    "allowNonInteractive": true,
+    "allowNonInteractiveMutations": false
+  },
+  "result": {
+    "paths": [
+      "result.report_artifact",
+      "working.integration"
+    ],
+    "includeState": false,
+    "maxBytes": 8192
+  },
+  "statePolicy": {
+    "paths": {
+      "working.plan": {
+        "maxBytes": 8192
+      },
+      "working.branch_results": {
+        "maxBytes": 28672
+      },
+      "working.reviewed_evidence": {
+        "maxBytes": 8192
+      },
+      "working.debate": {
+        "maxBytes": 16384
+      },
+      "working.integration": {
+        "maxBytes": 8192
+      },
+      "result.report_artifact": {
+        "maxBytes": 8192
+      }
+    }
+  }
+}

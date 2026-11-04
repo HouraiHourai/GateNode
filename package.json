@@ -1,0 +1,75 @@
+{
+	"name": "@shying/pi-graph",
+	"version": "0.2.0",
+	"description": "A LangGraph-inspired Pi agent graph extension with durable execution, bounded state, artifacts, and explicit agent context modes",
+	"type": "module",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/huang-sh/pi-graph.git"
+	},
+	"bugs": {
+		"url": "https://github.com/huang-sh/pi-graph/issues"
+	},
+	"homepage": "https://github.com/huang-sh/pi-graph#readme",
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"agent-graph",
+		"langgraph",
+		"graph-engineering",
+		"multi-agent"
+	],
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"files": [
+		"extensions",
+		"src",
+		"examples",
+		"docs",
+		"README.md",
+		"README.en.md",
+		"pig.png",
+		"CHANGELOG.md",
+		"LICENSE",
+		"skills"
+	],
+	"scripts": {
+		"test": "tsx --test --test-concurrency=1 test/*.test.ts",
+		"check": "tsc -p tsconfig.json --noEmit",
+		"validate:examples": "tsx scripts/validate-examples.ts",
+		"render:graphs": "tsx scripts/render-graphs.ts",
+		"prepublishOnly": "npm run check && npm test && npm run validate:examples"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "^0.83.0",
+		"@earendil-works/pi-coding-agent": "^0.83.0",
+		"@earendil-works/pi-tui": "^0.83.0",
+		"typebox": "^1.1.38"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"pi": {
+		"extensions": [
+			"./extensions/pi-graph.ts"
+		],
+		"skills": [
+			"./skills"
+		]
+	},
+	"exports": {
+		"./runtime": "./src/index.ts"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-ai": "0.83.0",
+		"@earendil-works/pi-coding-agent": "0.83.0",
+		"@earendil-works/pi-tui": "0.83.0",
+		"@mermaid-js/mermaid-cli": "^11.16.0",
+		"@types/node": "22.20.1",
+		"tsx": "4.22.1",
+		"typebox": "1.1.38",
+		"typescript": "5.8.3"
+	}
+}

@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 2,
+  "name": "open-ended-debate",
+  "description": "Allocate any debate topic, then let two persistent Pi agents debate until one concedes.",
+  "entry": "topic_allocator",
+  "nodes": {
+    "topic_allocator": {
+      "type": "agent",
+      "description": "Turn the user's topic into a neutral motion and assign balanced opposing positions.",
+      "prompt": "You are a neutral debate topic allocator. Read the user's topic below and produce a fair debate setup in the same language. Formulate one clear motion, assign two mutually opposed and comparably defensible positions, define ambiguous terms, and give neutral evaluation criteria. Do not argue either side, predict a winner, or prescribe a number of rounds. If the input is already a clear debate topic, preserve its meaning instead of replacing it.\n\nUser topic:\n{{input.task}}\n\nSubmit the setup through the node-output tool.",
+      "readOnly": true,
+      "tools": [],
+      "thinking": "medium",
+      "context": { "mode": "isolated" },
+      "output": "debate",
+      "response": {
+        "maxBytes": 12000,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "motion": { "type": "string", "maxLength": 1800 },
+            "affirmativePosition": { "type": "string", "maxLength": 1800 },
+            "negativePosition": { "type": "string", "maxLength": 1800 },
+            "definitions": { "type": "array", "items": { "type": "string", "maxLength": 1000 }, "maxItems": 6 },
+            "evaluationCriteria": { "type": "array", "items": { "type": "string", "maxLength": 1000 }, "maxItems": 6 },
+            "responseLanguage": { "type": "string", "maxLength": 100 }
+          },
+          "required": ["motion", "affirmativePosition", "negativePosition", "definitions", "evaluationCriteria", "responseLanguage"],
+          "additionalProperties": false
+        }
+      },
+      "retry": { "maxAttempts": 1 },
+      "limits": { "maxTurns": 5, "timeoutMs": 240000 }
+    },
+    "affirmative": {
+      "type": "agent",
+      "description": "Defend the position assigned to side A while retaining private debate memory.",
+      "prompt": "You are side A in an open-ended debate. The neutral allocator produced this setup:\n\n{{debate}}\n\nDefend affirmativePosition. Use responseLanguage. Address the latest opposing turn directly; it is empty only on your opening turn:\n\n{{negative_turn}}\n\nDo not count turns or stop because of length, politeness, or repetition alone. Set decision=continue while you can still defend your assigned position against the opponent's strongest argument. Set decision=concede only when you genuinely accept that your core position is no longer defensible; identify the precise argument that defeated it. Do not change the assigned motion or switch sides. Submit through the node-output tool.",
+      "readOnly": true,
+      "tools": [],
+      "thinking": "high",
+      "context": { "mode": "thread", "threadKey": "debate-affirmative" },
+      "output": "affirmative_turn",
+      "response": {
+        "maxBytes": 16000,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "decision": { "type": "string", "enum": ["continue", "concede"] },
+            "argument": { "type": "string", "maxLength": 4000 },
+            "rebuttal": { "type": "string", "maxLength": 4000 },
+            "challenge": { "type": "string", "maxLength": 2200 },
+            "concessionReason": { "type": "string", "maxLength": 2600 }
+          },
+          "required": ["decision", "argument", "rebuttal", "challenge", "concessionReason"],
+          "additionalProperties": false
+        }
+      },
+      "retry": { "maxAttempts": 1 },
+      "limits": { "maxTurns": 5, "timeoutMs": 240000 }
+    },
+    "negative": {
+      "type": "agent",
+      "description": "Defend the position assigned to side B while retaining private debate memory.",
+      "prompt": "You are side B in an open-ended debate. The neutral allocator produced this setup:\n\n{{debate}}\n\nDefend negativePosition. Use responseLanguage. Address side A's latest turn directly:\n\n{{affirmative_turn}}\n\nDo not count turns or stop because of length, politeness, or repetition alone. Set decision=continue while you can still defend your assigned position against the opponent's strongest argument. Set decision=concede only when you genuinely accept that your core position is no longer defensible; identify the precise argument that defeated it. Do not change the assigned motion or switch sides. Submit through the node-output tool.",
+      "readOnly": true,
+      "tools": [],
+      "thinking": "high",
+      "context": { "mode": "thread", "threadKey": "debate-negative" },
+      "output": "negative_turn",
+      "response": {
+        "maxBytes": 16000,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "decision": { "type": "string", "enum": ["continue", "concede"] },
+            "argument": { "type": "string", "maxLength": 4000 },
+            "rebuttal": { "type": "string", "maxLength": 4000 },
+            "challenge": { "type": "string", "maxLength": 2200 },
+            "concessionReason": { "type": "string", "maxLength": 2600 }
+          },
+          "required": ["decision", "argument", "rebuttal", "challenge", "concessionReason"],
+          "additionalProperties": false
+        }
+      },
+      "retry": { "maxAttempts": 1 },
+      "limits": { "maxTurns": 5, "timeoutMs": 240000 }
+    }
+  },
+  "edges": [
+    { "from": "topic_allocator", "to": "affirmative" },
+    {
+      "from": "affirmative",
+      "cases": [
+        { "when": { "path": "affirmative_turn.decision", "op": "eq", "value": "concede" }, "to": "__end__" }
+      ],
+      "default": "negative"
+    },
+    {
+      "from": "negative",
+      "cases": [
+        { "when": { "path": "negative_turn.decision", "op": "eq", "value": "concede" }, "to": "__end__" }
+      ],
+      "default": "affirmative"
+    }
+  ],
+  "limits": {
+    "maxSteps": 100,
+    "maxNodeRuns": 100,
+    "maxConcurrency": 1,
+    "timeoutMs": 7200000,
+    "maxStateBytes": 131072
+  },
+  "policy": { "allowNonInteractive": true },
+  "result": { "paths": ["debate", "affirmative_turn", "negative_turn"] }
+}

@@ -1,0 +1,382 @@
+{
+  "schemaVersion": 2,
+  "name": "deep-researcher",
+  "description": "gpt-researcher-style deep research pipeline WITH live web grounding: sketch the landscape -> plan a sectioned outline -> review/approve the plan (headless auto gate; swap plan_reviewer for a human node for interactive approval) -> parallel per-section research via web_search (fan-out + collect) -> synthesize a cited draft -> fact-check draft claims against freshly retrieved web sources (catches fabricated DOIs/dates) -> publish a final report artifact. Grounding uses web_search's synthesized, cited answers (headless-reliable); control-flow handoffs (plan verdict, plan outline, fact-check verdict) are hardened with response.schema; thread nodes use maxAttempts:1 and rely on the review loops for revision.",
+  "entry": "browser",
+  "initialState": {
+    "control": {},
+    "working": {},
+    "memory": {},
+    "result": {}
+  },
+  "reducers": {
+    "working.section_research": "collect"
+  },
+  "nodes": {
+    "browser": {
+      "type": "agent",
+      "description": "Initial broad scout: use web_search to sketch the real, current landscape with live sources.",
+      "prompt": "You are the initial research Scout. Use the web_search tool (pass workflow:\"none\" and 2-3 varied queries) to ground your sketch in REAL, CURRENT sources. Rely on web_search's synthesized answers and the cited URLs it returns — do not call any other tool.\n\nQuery:\n{{input.task}}\n\nProduce a concise landscape sketch: what is known, the main sub-topics, the key contending positions or schools of thought, and the questions a reader would most want answered. Cite each major point with a real URL that web_search returned. Today's date is the current real date — use it.\n\nReturn 200-350 words of dense notes with inline source URLs. Do not write the final report here.",
+      "readOnly": true,
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "web_search"
+      ],
+      "output": "working.sketch",
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 360000,
+        "maxTurns": 10,
+        "maxCostUsd": 0.6
+      },
+      "loadExtensions": true
+    },
+    "planner": {
+      "type": "agent",
+      "description": "Editor: turn the sketch into a sectioned report outline. Re-runs on plan-review feedback (thread); relies on the plan_reviewer loop rather than node retry for revision.",
+      "prompt": "You are the Editor/Planner. Using the landscape sketch and the query, produce a research-report outline: a concise title and EXACTLY 3 distinct section headers that a balanced report should cover. Do NOT include Introduction, Conclusion, or References as headers (those are written later). Focus only on substantive topical sections.\n\nQuery:\n{{input.task}}\n\nLandscape sketch:\n{{working.sketch}}\n\nPrior plan-review feedback (address it if present):\n{{control.plan_review}}\n\nReturn the outline through the node-output tool with the required shape: a title, exactly 3 section headers, and today's real date.",
+      "readOnly": true,
+      "tools": [],
+      "output": "working.plan",
+      "response": {
+        "maxBytes": 16384,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string", "maxLength": 200 },
+            "sections": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": { "type": "string", "maxLength": 200 }
+            },
+            "date": { "type": "string", "maxLength": 40 }
+          },
+          "required": ["title", "sections", "date"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "thread",
+        "threadKey": "planner"
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 180000,
+        "maxTurns": 6,
+        "maxCostUsd": 0.3
+      }
+    },
+    "plan_reviewer": {
+      "type": "agent",
+      "purpose": "reviewer",
+      "description": "Independently judge whether the outline is balanced and sufficient. Routes back to planner when not.",
+      "prompt": "You are an independent Plan Reviewer. Judge whether this report outline is balanced, covers the query, and is neither redundant nor missing an obvious angle.\n\nQuery:\n{{input.task}}\n\nOutline:\n{{working.plan}}\n\nReturn your verdict through the node-output tool with the required shape: approved (true if the outline is sound) and feedback. Set approved=false only with concrete, actionable, one-line feedback the planner can act on; do not nitpick cosmetics.",
+      "readOnly": true,
+      "tools": [],
+      "output": "control.plan_review",
+      "response": {
+        "maxBytes": 16384,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "approved": { "type": "boolean" },
+            "feedback": { "type": "string", "maxLength": 800 }
+          },
+          "required": ["approved", "feedback"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 180000,
+        "maxTurns": 6,
+        "maxCostUsd": 0.3
+      }
+    },
+    "section_a": {
+      "type": "agent",
+      "description": "Research the FIRST section of the outline in depth using live web sources.",
+      "prompt": "You are an isolated section Researcher. Investigate ONLY the FIRST section header of the outline below.\n\nUse the web_search tool (pass workflow:\"none\" and 2-3 varied queries specific to this section) to gather CURRENT, REAL evidence. Rely on web_search's synthesized answers and the cited URLs it returns — do not call any other tool. Cite EVERY specific number, trial name, or claim with a real URL that web_search returned — never invent a DOI or URL, and never use placeholder text. If you cannot verify a fact, say so explicitly rather than fabricating a source.\n\nQuery:\n{{input.task}}\n\nOutline:\n{{working.plan}}\n\nLandscape sketch:\n{{working.sketch}}\n\nReturn 300-500 words for this one section only, with inline source URLs.",
+      "readOnly": true,
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "web_search"
+      ],
+      "output": "working.section_research",
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 420000,
+        "maxTurns": 10,
+        "maxCostUsd": 0.7
+      },
+      "loadExtensions": true
+    },
+    "section_b": {
+      "type": "agent",
+      "description": "Research the SECOND section of the outline in depth using live web sources.",
+      "prompt": "You are an isolated section Researcher. Investigate ONLY the SECOND section header of the outline below.\n\nUse the web_search tool (pass workflow:\"none\" and 2-3 varied queries specific to this section) to gather CURRENT, REAL evidence. Rely on web_search's synthesized answers and the cited URLs it returns — do not call any other tool. Cite EVERY specific number, trial name, or claim with a real URL that web_search returned — never invent a DOI or URL, and never use placeholder text. If you cannot verify a fact, say so explicitly rather than fabricating a source.\n\nQuery:\n{{input.task}}\n\nOutline:\n{{working.plan}}\n\nLandscape sketch:\n{{working.sketch}}\n\nReturn 300-500 words for this one section only, with inline source URLs.",
+      "readOnly": true,
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "web_search"
+      ],
+      "output": "working.section_research",
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 420000,
+        "maxTurns": 10,
+        "maxCostUsd": 0.7
+      },
+      "loadExtensions": true
+    },
+    "section_c": {
+      "type": "agent",
+      "description": "Research the THIRD section of the outline in depth using live web sources.",
+      "prompt": "You are an isolated section Researcher. Investigate ONLY the THIRD section header of the outline below.\n\nUse the web_search tool (pass workflow:\"none\" and 2-3 varied queries specific to this section) to gather CURRENT, REAL evidence. Rely on web_search's synthesized answers and the cited URLs it returns — do not call any other tool. Cite EVERY specific number, trial name, or claim with a real URL that web_search returned — never invent a DOI or URL, and never use placeholder text. If you cannot verify a fact, say so explicitly rather than fabricating a source.\n\nQuery:\n{{input.task}}\n\nOutline:\n{{working.plan}}\n\nLandscape sketch:\n{{working.sketch}}\n\nReturn 300-500 words for this one section only, with inline source URLs.",
+      "readOnly": true,
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "web_search"
+      ],
+      "output": "working.section_research",
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 420000,
+        "maxTurns": 10,
+        "maxCostUsd": 0.7
+      },
+      "loadExtensions": true
+    },
+    "writer": {
+      "type": "agent",
+      "description": "Synthesize a complete cited draft from the plan and per-section research. Re-runs on fact-check feedback (thread); relies on the fact_checker loop rather than node retry for revision.",
+      "prompt": "You are the research Writer. Assemble a complete, well-written draft report from the outline and the per-section research. Structure: a title, a short Introduction, the 3 sections (each synthesized from its research, NOT copy-pasted, keeping inline source URLs), and a Conclusion. Synthesize across the three sections; do not just concatenate them.\n\nCRITICAL citation rule: only cite URLs that already appear in the per-section research below. NEVER invent a DOI, URL, or source. If the research lacks a source for a claim, state the claim without a citation or drop it. Using placeholder text like 'xxxxx' is forbidden. Use today's real date.\n\nQuery:\n{{input.task}}\n\nOutline:\n{{working.plan}}\n\nPer-section research:\n{{working.section_research}}\n\nPrior fact-check feedback (fix the flagged issues if present):\n{{working.fact_check}}\n\nReturn clean Markdown only.",
+      "readOnly": true,
+      "tools": [],
+      "output": "working.draft",
+      "response": {
+        "format": "text",
+        "maxBytes": 65536
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "thread",
+        "threadKey": "writer"
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 300000,
+        "maxTurns": 6,
+        "maxCostUsd": 0.6
+      }
+    },
+    "fact_checker": {
+      "type": "agent",
+      "purpose": "reviewer",
+      "description": "Independently verify draft claims and citations against freshly retrieved web sources; route back to writer on failures.",
+      "prompt": "You are a diligent Fact Checker. Your job is to CATCH fabrication, not rubber-stamp.\n\nMake AT MOST 3 web verifications total: target the 2-3 most doubtful claims or suspicious-looking citations (placeholder/odd DOIs, surprising numbers). Use the web_search tool (pass workflow:\"none\") to confirm or refute each target claim against a real retrieved source — do not call any other tool. Specifically check for and reject: (1) any DOI/URL containing placeholder text like 'xxxxx' or that does not resolve, (2) a wrong report date, (3) specific numbers or trial names that you cannot confirm against a real retrieved source, (4) URLs the writer invented that appear nowhere in the section research. Then stop and return your verdict — do not exhaustively re-check every line.\n\nDraft:\n{{working.draft}}\n\nPer-section research (the only legitimate citation pool):\n{{working.section_research}}\n\nReturn your verdict through the node-output tool with the required shape: approved (true ONLY when the key claims are confirmed against real retrieved sources AND no placeholder/fabricated citations remain) and issues (a list of concrete one-line fixes when approved is false). Do not loop forever on cosmetic style.",
+      "readOnly": true,
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "web_search"
+      ],
+      "output": "working.fact_check",
+      "response": {
+        "maxBytes": 16384,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "approved": { "type": "boolean" },
+            "issues": {
+              "type": "array",
+              "maxItems": 12,
+              "items": { "type": "string", "maxLength": 400 }
+            }
+          },
+          "required": ["approved", "issues"],
+          "additionalProperties": false
+        }
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 420000,
+        "maxTurns": 8,
+        "maxCostUsd": 0.7
+      },
+      "loadExtensions": true
+    },
+    "publisher": {
+      "type": "agent",
+      "description": "Produce the final polished report artifact: clean markdown, compiled sources list, and a TL;DR.",
+      "prompt": "You are the Publisher. Produce the final, polished research report from the draft. Add: a one-line TL;DR at the top, clean and consistent Markdown formatting, and a consolidated Sources list at the end compiled from every inline citation in the draft (deduplicated). Only include URLs that actually appear in the draft. If any citation looks like a placeholder (e.g. 'xxxxx') or is obviously broken, omit it rather than ship a dead link.\n\nDraft:\n{{working.draft}}\n\nOutline:\n{{working.plan}}\n\nReturn the final report as Markdown.",
+      "readOnly": true,
+      "tools": [],
+      "output": "result.report_artifact",
+      "response": {
+        "format": "text",
+        "storage": "artifact",
+        "maxBytes": 65536
+      },
+      "thinking": "off",
+      "context": {
+        "mode": "isolated"
+      },
+      "retry": {
+        "maxAttempts": 2,
+        "backoffMs": 800
+      },
+      "idempotent": true,
+      "limits": {
+        "timeoutMs": 240000,
+        "maxTurns": 5,
+        "maxCostUsd": 0.5
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "browser",
+      "to": "planner"
+    },
+    {
+      "from": "planner",
+      "to": "plan_reviewer"
+    },
+    {
+      "from": [
+        "section_a",
+        "section_b",
+        "section_c"
+      ],
+      "to": "writer"
+    },
+    {
+      "from": "writer",
+      "to": "fact_checker"
+    },
+    {
+      "from": "publisher",
+      "to": "__end__"
+    },
+    {
+      "from": "plan_reviewer",
+      "cases": [
+        {
+          "when": {
+            "path": "control.plan_review.approved",
+            "op": "eq",
+            "value": true
+          },
+          "to": [
+            "section_a",
+            "section_b",
+            "section_c"
+          ]
+        }
+      ],
+      "default": "planner"
+    },
+    {
+      "from": "fact_checker",
+      "cases": [
+        {
+          "when": {
+            "path": "working.fact_check.approved",
+            "op": "eq",
+            "value": true
+          },
+          "to": "publisher"
+        }
+      ],
+      "default": "writer"
+    }
+  ],
+  "limits": {
+    "maxSteps": 18,
+    "maxNodeRuns": 32,
+    "maxConcurrency": 3,
+    "maxCostUsd": 6,
+    "timeoutMs": 2400000,
+    "maxStateBytes": 131072,
+    "maxPromptBytes": 32768
+  },
+  "result": {
+    "paths": [
+      "result.report_artifact",
+      "working.fact_check",
+      "control.plan_review"
+    ],
+    "includeState": false,
+    "maxBytes": 12288
+  },
+  "policy": {
+    "allowNonInteractive": true,
+    "allowNonInteractiveMutations": true,
+    "confirmMutatingNodes": false
+  }
+}

@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 2,
+  "name": "UPEV",
+  "entry": "understanding",
+  "policy": {
+    "allowNonInteractive": true,
+    "allowNonInteractiveMutations": true
+  },
+  "nodes": {
+    "understanding": {
+      "type": "agent",
+      "description": "Articulate the problem itself: for bugs, draft an excellent issue; for analysis tasks, clarify the exact question and preferences.",
+      "prompt": "用户任务：{{input.task}}\n\n用户最新回答：{{working.answer}}\n\n你是 Understanding 节点。你的职责是把【问题本身】阐述清楚，交付给 Plan 一个定义良好的问题——不是罗列任务事实链。先判断任务类型，再按对应框架工作：\n\n【bug 类】产出一篇优秀的 issue：\n- 现象：期望行为 vs 实际行为，各一句话\n- 复现：步骤 / 环境 / 触发条件；不可稳定复现则说明何时出现过\n- 证据：报错原文、日志、file:line（自己用 read/grep 查证，不问用户）\n- 影响范围与严重度\n- 初步根因假设：可多个，各标置信度；明确说哪些已排除\n- 验收标准：修复后什么样算好（可静态验证则写出验证命令）\n\n【分析 / 调研类】理清具体分析需求与偏好：\n- 要回答的核心问题：一个主问题 + 子问题列表\n- 输出形式：报告 / 对比表 / 一句话结论，以及深度与粒度\n- 范围与偏好：时间范围、来源偏好、语言、已有的认知或立场\n- 验收标准：什么样的答案算满意\n\n【构建 / 修改类】理清目标、范围、约束、验收标准。\n\n盘问规则：\n- 每次只问【一个】问题，问题中附上你的推荐答案\n- 事实类问题（文件在哪、代码现状、报错日志）先用 read/grep/find/ls 自己查，不要问用户；决策类与偏好类问题必须问用户\n- 问题陈述里的歧义、缺失的关键信息，逐个问清；追问最多 5 轮，超过则强制 clear=true，按现有信息给出理解\n- 输出 JSON：clear（问题是否已阐述清楚）、question（下一问题，仅 clear=false 时需要）、understanding（按上述框架组织的问题阐述——优秀 issue 或分析需求书，不是事实流水账）",
+      "readOnly": true,
+      "context": {
+        "mode": "thread",
+        "threadKey": "understanding"
+      },
+      "output": "working.clarify",
+      "retry": {
+        "maxAttempts": 1
+      },
+      "response": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "clear": {
+              "type": "boolean"
+            },
+            "question": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "understanding": {
+              "type": "string",
+              "maxLength": 5000
+            }
+          },
+          "required": [
+            "clear",
+            "understanding"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "ask": {
+      "type": "human",
+      "kind": "input",
+      "description": "Ask the user exactly one grilling question, interrupt and wait.",
+      "prompt": "{{working.clarify.question}}",
+      "output": "working.answer",
+      "pause": true
+    },
+    "plan": {
+      "type": "agent",
+      "description": "Read-only investigation: produce an execution plan, never mutate anything.",
+      "prompt": "任务：{{input.task}}\n\n已确认的任务理解：\n{{working.clarify.understanding}}\n\n你是 Plan 节点，只做读取和调研，禁止执行任何修改操作（工具已被限制为只读）。调研相关文件和现状后输出可执行计划：分步列出每一步做什么、改哪些文件、风险点。不要动手实现。",
+      "readOnly": true,
+      "context": {
+        "mode": "isolated"
+      },
+      "output": "working.plan"
+    },
+    "execution": {
+      "type": "agent",
+      "description": "Execute the plan and produce the result.",
+      "prompt": "任务理解：\n{{working.clarify.understanding}}\n\n计划：\n{{working.plan}}\n\n验证反馈（如为空说明是首轮，直接执行计划）：\n{{working.verify.issues}}\n\n你是 Execution 节点，严格按计划执行。若存在验证反馈，优先修复其中列出的问题。完成后报告做了什么、结果在哪。",
+      "context": {
+        "mode": "thread",
+        "threadKey": "execution"
+      },
+      "output": "working.result",
+      "retry": {
+        "maxAttempts": 1
+      }
+    },
+    "verification": {
+      "type": "agent",
+      "purpose": "reviewer",
+      "description": "Independently verify the execution result against the confirmed understanding and plan.",
+      "prompt": "任务理解：\n{{working.clarify.understanding}}\n\n计划：\n{{working.plan}}\n\n执行报告：\n{{working.result}}\n\n你是 Verification 节点，独立核验：实际读取磁盘上的改动，逐条对照计划与验收标准。全部满足才 passed=true；否则 passed=false 并列出具体问题交回 Execution 修复。输出 JSON：passed、issues（空数组表示通过）、summary（核验结论）。",
+      "readOnly": true,
+      "context": {
+        "mode": "isolated"
+      },
+      "output": "working.verify",
+      "response": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20
+            },
+            "summary": {
+              "type": "string",
+              "maxLength": 3000
+            }
+          },
+          "required": [
+            "passed",
+            "issues",
+            "summary"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "understanding",
+      "cases": [
+        {
+          "when": {
+            "path": "working.clarify.clear",
+            "op": "eq",
+            "value": true
+          },
+          "to": "plan"
+        }
+      ],
+      "default": "ask"
+    },
+    {
+      "from": "ask",
+      "to": "understanding"
+    },
+    {
+      "from": "plan",
+      "to": "execution"
+    },
+    {
+      "from": "execution",
+      "to": "verification"
+    },
+    {
+      "from": "verification",
+      "cases": [
+        {
+          "when": {
+            "path": "working.verify.passed",
+            "op": "eq",
+            "value": true
+          },
+          "to": "__end__"
+        }
+      ],
+      "default": "execution"
+    }
+  ],
+  "result": {
+    "paths": [
+      "working.clarify.understanding",
+      "working.plan",
+      "working.result",
+      "working.verify"
+    ],
+    "includeState": false
+  }
+}
