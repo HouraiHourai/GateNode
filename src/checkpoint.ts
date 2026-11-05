@@ -977,7 +977,8 @@ async function writeJsonDurable(path: string, value: unknown, mode: number, excl
 }
 
 async function syncFile(path: string): Promise<void> {
-	const handle = await open(path, "r");
+	// Windows FlushFileBuffers requires a writable handle. Keep syncing failures fatal.
+	const handle = await open(path, process.platform === "win32" ? "r+" : "r");
 	try {
 		await handle.sync();
 	} finally {

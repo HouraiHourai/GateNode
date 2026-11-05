@@ -116,9 +116,19 @@ const AssignmentSchema = Type.Refine(
 			: "SET_ASSIGNMENT_SOURCE: Assignment must define exactly one of value, template, or from",
 );
 
+const GateSchema = exactObject({
+	checks: Type.Array(Type.Enum(["typecheck", "test", "python-syntax", "python-test"] as const), { minItems: 1, maxItems: 2, uniqueItems: true }),
+	pythonExecutable: Type.Optional(NonEmptyStringSchema),
+	maxAttempts: Type.Optional(Type.Integer({ minimum: 1, maximum: 5 })),
+	writableFiles: Type.Array(NonEmptyStringSchema, { minItems: 1, maxItems: 32, uniqueItems: true }),
+	timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: 60000 })),
+	maxOutputBytes: Type.Optional(Type.Integer({ minimum: 1024, maximum: 131072 })),
+});
+
 const AgentNodeSchema = exactObject({
 	...BaseNodeProperties,
 	type: Type.Literal("agent"),
+	gate: Type.Optional(GateSchema),
 	purpose: Type.Optional(PurposeSchema),
 	prompt: NonEmptyStringSchema,
 	systemPrompt: Type.Optional(Type.String()),
@@ -152,6 +162,7 @@ const HumanNodeSchema = exactObject({
 
 const UnknownNodeSchema = exactObject({
 	...BaseNodeProperties,
+	gate: Type.Optional(GateSchema),
 	type: Type.Enum(["agent", "set", "human"] as const),
 	prompt: Type.Optional(Type.String()),
 	systemPrompt: Type.Optional(Type.String()),

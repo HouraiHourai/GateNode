@@ -13,6 +13,7 @@ test("runtime exposes only the supported value surface", () => {
 			"END",
 			"FileCheckpointStore",
 			"GraphEngine",
+			"GateNodeExecutor",
 			"GraphValidationError",
 			"PiNodeExecutor",
 			"compileGraph",

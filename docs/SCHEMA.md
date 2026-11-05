@@ -1,6 +1,6 @@
-# pi-graph `schemaVersion: 2`
+# GateNode 图定义：`schemaVersion: 2`
 
-本文档描述 `pi-graph` 的 UTF-8 JSON graph definition。版本 2 使用唯一的 prompt、output 与 state byte limits，并只保留具有运行语义的 reviewer purpose。`agent.context` 未声明时默认 `isolated`。
+本文档描述 GateNode 继承的 `pi-graph` UTF-8 JSON graph definition，以及 Agent 节点的 `gate` 扩展。版本 2 使用唯一的 prompt、output 与 state byte limits，并只保留具有运行语义的 reviewer purpose。`agent.context` 未声明时默认 `isolated`。
 
 所有 graph 控制对象都使用精确字段集合；未知字段会以 `UNKNOWN_FIELD` 拒绝，避免拼写错误被静默忽略。`initialState`、assignment/condition 的 `value` 等业务 JSON 数据仍允许任意键。
 
@@ -116,6 +116,7 @@ input.task
 ```ts
 interface AgentNodeDefinition {
   type: "agent";
+  gate?: GatePolicy;
   purpose?: "reviewer";
   prompt: string;
   systemPrompt?: string;
@@ -143,6 +144,10 @@ interface AgentNodeDefinition {
 
 `purpose` 只存在于 agent node，且只接受 `"reviewer"`：它触发 reviewer 安全诊断，不会注入隐藏的 system prompt。其他职责直接通过节点的 prompt、`systemPrompt`、tools、context 与 graph topology 表达。
 
+### GateNode acceptance
+
+`gate` 在 Agent 返回成功后执行确定性代码验收，并控制失败反馈和限次修复。它要求显式 `isolated`、串行图和单层重试；配置字段、检查预设及失败语义见 [门控机制](GATE.md)。不带 `gate` 的节点保持上游执行语义。
+
 ### Prompt template
 
 `{{ dotted.path }}` 从当前 superstep 的 state snapshot 读取：
@@ -159,7 +164,7 @@ object/array 格式化为 JSON；不存在路径渲染为空字符串。
 
 ```ts
 interface AgentContextPolicy {
-  mode?: "isolated" | "thread" | "shared"; // default thread (since 0.1.0; was isolated before)
+  mode?: "isolated" | "thread" | "shared"; // default isolated
   threadKey?: string;                        // thread only
   messagesPath?: string;                     // shared only, default messages
   maxMessages?: number;                      // prompt projection, default 32

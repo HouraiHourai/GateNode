@@ -1,6 +1,22 @@
-# pi-graph architecture
+# GateNode architecture
 
-## 目标
+GateNode 在 pi-graph 的图运行时上增加代码验收执行器。以下首先说明扩展层，再描述继承的图调度、状态与恢复语义。
+
+## GateNode 验收层
+
+```text
+Pi extension → GraphEngine → GateNodeExecutor
+                                ├─ 普通节点 → PiNodeExecutor
+                                └─ gate 节点 → Agent → 工作区检查 → 固定验收
+                                                ↑                 │
+                                                └─ 失败反馈与限次修复
+```
+
+`GateNodeExecutor` 持有候选结果，只有检查全部通过才把成功 writes 返回引擎。它复用 `NodeExecutor`、节点预算、事件和错误路由；调度器与 checkpoint 数据格式保持上游语义。修复报告独立存储，不提供修复中途的精确恢复。配置、工作区保护和恢复边界见 [门控机制](GATE.md)。
+
+下文描述通用 pi-graph 能力；GateNode 门控目前仅支持 `isolated` 上下文和串行图。
+
+## 图运行时目标
 
 `pi-graph` 是 Pi extension，不是 LangGraph API 克隆。它把以下低层语义映射到 Pi agent runtime：
 

@@ -14,6 +14,7 @@ import {
 	type AgentSession,
 	type InlineExtension,
 	type ModelRuntime,
+	type ModelRegistry,
 	type ScopedModel,
 	type SessionEntry,
 	type ToolDefinition,
@@ -256,6 +257,8 @@ export interface InProcessPiAgentRuntimeOptions {
 	threadSessionsDir?: string;
 	/** Optional caller-owned runtime, primarily for embedding and deterministic tests. */
 	modelRuntime?: ModelRuntime;
+	/** Pi 0.83 exposes registered providers through this public compatibility facade. */
+	parentModelRegistry?: ModelRegistry;
 	/** Active model from the parent Pi session, used unless the node selects one. */
 	model?: Model<Api>;
 	/** Active thinking level from the parent Pi session, used unless the node selects one. */
@@ -400,6 +403,18 @@ export class InProcessPiAgentRuntime implements NodeAgentRuntime {
 				},
 			});
 
+			// Pi 0.83 does not expose getChildSessionProfile yet. Copy registered
+			// provider definitions through its public registry, not private runtime fields.
+			if (!parent && !this.options.modelRuntime && this.options.parentModelRegistry) {
+				const registry = this.options.parentModelRegistry;
+				for (const id of registry.getRegisteredProviderIds()) {
+					const native = registry.getRegisteredNativeProvider(id);
+					const config = registry.getRegisteredProviderConfig(id);
+					if (native) services.modelRuntime.registerNativeProvider(native);
+					else if (config) services.modelRuntime.registerProvider(id, config);
+				}
+				if (registry.getRegisteredProviderIds().length) await services.modelRuntime.refresh({ allowNetwork: false });
+			}
 			let model = parent?.model ?? this.options.model;
 			let thinkingLevel = node.thinking ?? parent?.thinkingLevel ?? this.options.thinkingLevel;
 			if (node.model) {

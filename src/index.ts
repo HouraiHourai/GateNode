@@ -8,6 +8,8 @@ export {
 export { GraphValidationError, compileGraph } from "./compile.ts";
 export { GraphEngine } from "./engine.ts";
 export { PiNodeExecutor } from "./pi-executor.ts";
+export { GateNodeExecutor } from "./gate/executor.ts";
+export type { GateExecutorOptions, GateReport, GateRound } from "./gate/executor.ts";
 export { END } from "./types.ts";
 
 export type {
@@ -39,6 +41,7 @@ export type {
 	Diagnostic,
 	EdgeDefinition,
 	GraphDefinition,
+	GatePolicy,
 	GraphRunEvent,
 	GraphRunOptions,
 	GraphRunResult,

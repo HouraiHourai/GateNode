@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { validateSchemaOutput } from "./output-schema.ts";
 import {
 	InProcessPiAgentRuntime,
@@ -76,6 +77,7 @@ export interface PiNodeExecutorEnvironment {
 	artifactsDir?: string;
 	/** Model selected by the parent Pi session. */
 	parentModel?: Model<Api>;
+	parentModelRegistry?: ModelRegistry;
 	/** Thinking level selected by the parent Pi session. */
 	parentThinkingLevel?: AgentNodeDefinition["thinking"];
 	/** Active tools selected by the parent Pi session. */
@@ -137,6 +139,7 @@ export class PiNodeExecutor implements NodeExecutor {
 				projectTrusted: environment.projectTrusted,
 				threadSessionsDir: environment.threadSessionsDir,
 				model: environment.parentModel,
+				parentModelRegistry: environment.parentModelRegistry,
 				thinkingLevel: environment.parentThinkingLevel,
 				activeTools: environment.parentActiveTools,
 				parentProfile: environment.parentSessionProfile,
@@ -144,6 +147,9 @@ export class PiNodeExecutor implements NodeExecutor {
 	}
 
 	async execute(node: NodeDefinition, context: NodeExecutionContext): Promise<NodeExecutionResult> {
+		if (node.type === "agent" && node.gate) {
+			return failureResult("Gated nodes require GateNodeExecutor; refusing unchecked execution", "GATE_EXECUTOR_REQUIRED", false, emptyUsage(), nowIso());
+		}
 		if (node.type === "set") return this.executeSet(node, context);
 		if (node.type === "human") return await this.executeHuman(node, context);
 		return await this.executeAgent(node, context);

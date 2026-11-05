@@ -16,6 +16,7 @@ import type {
 import { posix as pathPosix } from "node:path";
 import { validateGraphStructure } from "./graph-schema.ts";
 import { jsonSchemaProblems } from "./output-schema.ts";
+import { gatePolicyProblems } from "./gate/policy.ts";
 import {
 	DEFAULT_AGENT_TOOL_NAMES,
 	READ_ONLY_TOOL_NAMES,
@@ -110,7 +111,12 @@ function validateGraph(definition: GraphDefinition): Diagnostic[] {
 		);
 	}
 
-	for (const [nodeId, node] of Object.entries(definition.nodes)) validateNode(nodeId, node, diagnostics);
+	for (const [nodeId, node] of Object.entries(definition.nodes)) {
+		validateNode(nodeId, node, diagnostics);
+		if (node.type === "agent") {
+			for (const problem of gatePolicyProblems(node, definition)) pushError(diagnostics, "GATE_POLICY", problem, `nodes.${nodeId}.gate`);
+		}
+	}
 	for (const group of topology.targetGroups) {
 		for (const target of group.targets) validateTarget(target, nodeSet, diagnostics, group.path);
 	}

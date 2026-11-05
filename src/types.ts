@@ -132,8 +132,23 @@ export interface BaseNodeDefinition {
 	idempotent?: boolean;
 }
 
+export interface GatePolicy {
+	checks: ("typecheck" | "test" | "python-syntax" | "python-test")[];
+	/** Python executable or absolute virtualenv interpreter path; no shell arguments. */
+	pythonExecutable?: string;
+	/** Total attempts, including the initial execution. Default: 3. */
+	maxAttempts?: number;
+	/** Exact existing source files, relative to node cwd. No globs. */
+	writableFiles: string[];
+	/** Per-check timeout; the enclosing node deadline also applies. */
+	timeoutMs?: number;
+	maxOutputBytes?: number;
+}
+
 export interface AgentNodeDefinition extends BaseNodeDefinition {
 	type: "agent";
+	/** GateNode acceptance policy; only supported by GateNodeExecutor. */
+	gate?: GatePolicy;
 	purpose?: "reviewer";
 	prompt: string;
 	systemPrompt?: string;

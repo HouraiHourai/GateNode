@@ -1,4 +1,40 @@
+# Dependencies and build output
 node_modules/
+dist/
+build/
 *.tgz
-.coverage/
+*.tsbuildinfo
+coverage/
+.coverage
+htmlcov/
+
+# Local Pi state, acceptance reports and generated workspaces
+/.pi/
+/.gatenode/
+/demo-output/*
+!/demo-output/README.md
+
+# Credentials and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+auth.json
+credentials.json
+
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor and diagnostic output
+.idea/
+.vscode/
+*.log
 .DS_Store
+Thumbs.db

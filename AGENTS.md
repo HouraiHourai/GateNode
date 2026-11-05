@@ -1,6 +1,6 @@
-# pi-graph development notes
+# GateNode development notes
 
-- Keep the runtime dependency-free beyond Pi peer packages and Node built-ins.
+- Keep the graph runtime dependency-free beyond Pi peer packages and Node built-ins. Python checks use the standard library.
 - Accept only the current `schemaVersion: 2`; future breaking schema changes require an explicit migration path.
 - Do not use `eval` for conditional edges or templates.
 - Do not weaken project trust, mutation confirmation, path validation, or hard limits.

@@ -25,6 +25,7 @@ import { graphUsesMutatingTools } from "./compile.ts";
 import { discoverGraphs, findGraph } from "./discovery.ts";
 import { GraphEngine } from "./engine.ts";
 import { PiNodeExecutor } from "./pi-executor.ts";
+import { GateNodeExecutor } from "./gate/executor.ts";
 import type { ParentSessionProfile } from "./pi-agent-runtime.ts";
 import {
 	RuntimeGraphMonitor,
@@ -491,11 +492,13 @@ async function runGraph(
 		threadSessionsDir: join(getAgentDir(), "pi-graph", "threads"),
 		artifactsDir: join(getAgentDir(), "pi-graph", "artifacts"),
 		parentModel: request.outerModel,
+		parentModelRegistry: request.ctx.modelRegistry,
 		parentThinkingLevel: request.outerThinkingLevel,
 		parentActiveTools: request.outerActiveTools,
 		parentSessionProfile: request.outerSessionProfile,
 	});
-	const engine = new GraphEngine(compiled, executor, { checkpointStore, graphSource: graph.filePath });
+	const gatedExecutor = new GateNodeExecutor(executor, { cwd: request.ctx.cwd, reportsDir: join(getAgentDir(), "gatenode", "reports") });
+	const engine = new GraphEngine(compiled, gatedExecutor, { checkpointStore, graphSource: graph.filePath });
 	const progress = createRuntimeProgress(request.ctx, graph, request.onUpdate, activeRuntimeDisposers);
 	let holdBoard = false;
 	try {
@@ -542,11 +545,13 @@ async function resumeGraph(
 		threadSessionsDir: join(getAgentDir(), "pi-graph", "threads"),
 		artifactsDir: join(getAgentDir(), "pi-graph", "artifacts"),
 		parentModel: request.outerModel,
+		parentModelRegistry: request.ctx.modelRegistry,
 		parentThinkingLevel: request.outerThinkingLevel,
 		parentActiveTools: request.outerActiveTools,
 		parentSessionProfile: request.outerSessionProfile,
 	});
-	const engine = new GraphEngine(compiled, executor, { checkpointStore, graphSource: graph.filePath });
+	const gatedExecutor = new GateNodeExecutor(executor, { cwd: request.ctx.cwd, reportsDir: join(getAgentDir(), "gatenode", "reports") });
+	const engine = new GraphEngine(compiled, gatedExecutor, { checkpointStore, graphSource: graph.filePath });
 	const progress = createRuntimeProgress(request.ctx, graph, request.onUpdate, activeRuntimeDisposers, snapshot);
 	let holdBoard = false;
 	try {

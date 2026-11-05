@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 2,
+  "name": "python-gate",
+  "description": "Python source repair with syntax checks and fixed unittest acceptance.",
+  "entry": "implementer",
+  "nodes": {
+    "implementer": {
+      "type": "agent",
+      "prompt": "{{input.task}}\nRead the Python sources under src/ and the fixed unittest acceptance tests under tests/. Implement the requested change. Modify only the source files listed in GateNode acceptance below. Do not change tests, generate caches or install dependencies. Submit a brief explanation; the host will run Python syntax checks and unittest.",
+      "thinking": "off",
+      "cwd": "python-input",
+      "tools": ["read", "edit", "write"],
+      "loadExtensions": false,
+      "loadSkills": false,
+      "loadPromptTemplates": false,
+      "includeContextFiles": false,
+      "context": { "mode": "isolated" },
+      "retry": { "maxAttempts": 1 },
+      "gate": {
+        "checks": ["python-syntax", "python-test"],
+        "maxAttempts": 3,
+        "writableFiles": ["src/main.py"],
+        "timeoutMs": 30000,
+        "maxOutputBytes": 32768
+      },
+      "limits": { "timeoutMs": 300000, "maxTurns": 24, "maxCostUsd": 2 },
+      "onError": { "strategy": "route", "to": "manual", "output": "errors.implementer" }
+    },
+    "accepted": {
+      "type": "set",
+      "assign": [{ "path": "result", "value": { "status": "accepted", "message": "Python code passed syntax checks and fixed unittest tests." } }]
+    },
+    "manual": {
+      "type": "human",
+      "kind": "select",
+      "pause": true,
+      "prompt": "GateNode stopped without accepting the code.\n{{errors.implementer.message}}\nReview the report and workspace. Acknowledge records receipt only; repair the problem and start a new run.",
+      "options": ["acknowledge"],
+      "output": "manual.receipt"
+    },
+    "unresolved": {
+      "type": "set",
+      "assign": [{ "path": "result", "value": { "status": "needs_manual_repair", "message": "Automatic acceptance failed. The candidate remains unaccepted." } }]
+    }
+  },
+  "edges": [
+    { "from": "implementer", "to": "accepted" },
+    { "from": "accepted", "to": "__end__" },
+    { "from": "manual", "to": "unresolved" },
+    { "from": "unresolved", "to": "__end__" }
+  ],
+  "result": { "paths": ["result", "errors.implementer", "outputs.implementer"] },
+  "limits": { "maxConcurrency": 1, "maxSteps": 8, "maxNodeRuns": 8, "timeoutMs": 360000, "maxCostUsd": 2 }
+}

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { ChildProcess, execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import {
 	createFauxCore,
@@ -631,6 +631,15 @@ async function withRuntime<T>(label: string, run: (fixture: RuntimeFixture) => P
 	const directory = await mkdtemp(join(tmpdir(), `pi-graph-agent-runtime-${label}-`));
 	const agentDir = join(directory, "agent");
 	await mkdir(agentDir, { recursive: true });
+	// A portable Git installation may not be in Program Files. Avoid the legacy
+	// WSL launcher for this Windows-local filesystem test; do not alter user settings.
+	if (process.platform === "win32") {
+		const git = execFileSync("where.exe", ["git.exe"], { encoding: "utf8" }).trim().split(/\r?\n/)[0];
+		const bash = join(dirname(dirname(git)), "bin", "bash.exe");
+		if (await stat(bash).then((value) => value.isFile(), () => false)) {
+			await writeFile(join(agentDir, "settings.json"), JSON.stringify({ shellPath: bash }));
+		}
+	}
 	const provider = `pi-graph-runtime-${process.pid}-${fixtureSequence++}`;
 	const faux = createFauxCore({
 		api: `${provider}-api`,

@@ -1,147 +1,99 @@
-<p align="center">
-  <img src="pig.png" alt="pi-graph" width="320">
-</p>
-
-# pi-graph
+# GateNode
 
 [中文](README.md) | **English**
 
-Durable, auditable multi-agent state-graph orchestration for the [Pi agent harness](https://github.com/earendil-works/pi).
+Deterministic code acceptance and bounded repair for [pi-graph](https://github.com/huang-sh/pi-graph). Run coding tasks in the Pi terminal, check candidates with fixed tools and tests, and feed failures into another agent invocation. Exhausted attempts and checker errors route to a human node.
 
-`pi-graph` organizes parallel research, specialized roles, independent review, human approval, and failure recovery with explicit state, nodes, edges, and reducers. Every agent node still runs in process through the Pi SDK.
+## Features
 
-> Prefer one Pi agent loop for simple work. Use a graph only when the task genuinely needs parallelism, an independent reviewer, persistent role memory, or a human gate.
+- TypeScript checks using `tsc --noEmit` and Node Test Runner.
+- Python syntax checks and standard-library `unittest`.
+- Structured diagnostics, separate repair invocations, and shared node budgets.
+- Protected-file change detection, per-attempt reports, and human handoff.
 
-## Install
+## Requirements
 
-Requires Node.js `>= 22.19.0` and an installed copy of Pi.
+Node.js 22.19+, npm, and Python 3.10+ for Python tasks and the full test suite. Actual agent runs require a configured Pi model provider. Pi is included as a project dependency.
 
-Install from npm:
+From the repository root:
 
-```bash
-pi install npm:@shying/pi-graph
+```sh
+npm ci --ignore-scripts
 ```
 
-## Quick start
+Use `npm.cmd` instead of `npm` if required by PowerShell.
 
-Graphs are discovered from:
+## Run in Pi
 
-| Scope | Path |
-|---|---|
-| User | `~/.pi/agent/graphs/*.json` |
-| Current project | `<project>/.pi/graphs/*.json` |
+Prepare the TypeScript sample and open Pi:
 
-Project graphs load only after Pi trusts the current project. Install an example to get started:
-
-```bash
-mkdir -p ~/.pi/agent/graphs
-curl -fsSL https://raw.githubusercontent.com/huang-sh/pi-graph/main/examples/research-review.json \
-  -o ~/.pi/agent/graphs/research-review.json
+```sh
+npm run demo:prepare
+npm start
 ```
 
-Start Pi, then run:
+Trust the project and select a configured model with `/model`. Enter these commands in the **Pi chat input**:
 
 ```text
 /pig list
-/pig validate research-review
-/pig visualize research-review
-/pig run research-review Design a safe cache invalidation strategy for this repository
+/pig validate coding-gate
+/pig run coding-gate Add optional pagination to listItems while preserving existing calls
 ```
 
-If the graph pauses at a `human` node:
+To select a model on startup, use `npm start -- --model provider/model-id`.
+
+## Python tasks
+
+Place sources under `python-input/src/` and fixed `unittest.TestCase` tests under `python-input/tests/test_*.py`. The sample contains a deliberately incorrect addition function. Source filenames are discovered by the preparation script.
+
+```sh
+npm run python:prepare
+npm start
+```
+
+In Pi:
 
 ```text
-/pig resume <runId> true
+/pig validate python-gate
+/pig run python-gate Fix the code under src according to the acceptance tests
 ```
 
-## Core model
+An interpreter can be selected with `npm run python:prepare -- --python /absolute/path/to/python`. Install application dependencies in that environment first; virtual environments should stay outside the input directory. Pytest-style test functions are not supported.
 
-```text
-input → entry → fan-out → barrier → reviewer → loop / end
-```
+## Inputs and outputs
 
-Within each superstep, nodes read the same immutable state. Successful writes are committed together at the end of the step. Parallel nodes writing the same path must declare a reducer.
+| Task | Input | Modified source |
+|---|---|---|
+| TypeScript | `demo/fixture/` | `demo-output/<timestamp>/workspace/src/` |
+| Python | `python-input/` | `demo-output/python/<timestamp>/workspace/src/` |
 
-### Nodes
+Preparation copies inputs into a new workspace and prints the output paths. Agent runs edit that copy. Re-running a graph uses the prepared workspace; run preparation again after changing inputs. Python results also include `outputDirectory` and `outputFiles`.
 
-| Type | Purpose |
-|---|---|
-| `agent` | Agent work such as research, implementation, and review |
-| `set` | Deterministic state transformations |
-| `human` | Pause for approval, a choice, or input |
+Pi acceptance reports are stored under `<Pi agent directory>/gatenode/reports/`, normally `~/.pi/agent/gatenode/reports/`. Use `/pig inspect <runId>` to inspect workflow state.
 
-### Agent context
-
-| Mode | Best suited for |
-|---|---|
-| `isolated` | Independent reviewers, parallel branches, one-shot experts |
-| `thread` | One role retaining private Pi session history across a loop |
-| `shared` | Several nodes using an auditable graph-state message channel |
-
-The default is `thread` (since 0.1.0; previously `isolated`), so undeclared agent nodes keep private session history across loops. The same `threadKey` cannot run concurrently or span different `cwd` values.
-
-When authoring a graph:
-
-- use `edges` for static links, fan-out, barriers, and conditional loops;
-- use `response.schema` to validate critical agent handoffs;
-- use `collect` for current-round parallel results instead of unbounded loop accumulation;
-- store large reports as artifacts and keep only summaries and references in state;
-- use graph limits to bound the whole run and node limits to bound one agent invocation.
-
-See the [graph schema](docs/SCHEMA.md) for every field, or copy an existing graph from [examples](examples/).
-
-## Commands
-
-```text
-/pig list
-/pig validate [graph]
-/pig run <graph> [task or JSON]
-/pig resume <runId> [value or JSON]
-/pig inspect [runId] [--full|--inventory|state.path]
-/pig delete <runId>
-/pig visualize <graph>
-```
-
-Models can also call `pi_graph_run`, `pi_graph_resume`, and `pi_graph_inspect`. Active runs show a compact node-status and token board.
-
-`/pig inspect` is summary-first. `/pig delete` confirms before removing checkpoints, private thread history, and artifacts.
-
-## Examples
-
-| Example | Demonstrates |
-|---|---|
-| [research-review](examples/research-review.json) | Parallel research, barrier join, thread writer, independent reviewer |
-| [coding-review](examples/coding-review.json) | Persistent coder, review, human approval, revision loop |
-| [shared-handoff](examples/shared-handoff.json) | Shared message channel |
-| [idea-tournament](examples/idea-tournament.json) | Multi-way fan-out and barrier judge |
-| [open-ended-debate](examples/open-ended-debate.json) | Neutral topic allocation, two persistent debaters, concession routing |
-| [science-research](examples/science-research.json) | Human gate, research loop, artifact report |
-| [science-research-auto](examples/science-research-auto.json) | Automated research graph for headless/CI use |
-
-![research-review graph](docs/images/research-review.svg)
-
-## Persistence and safety
-
-- The extension manages run data under `~/.pi/agent/pi-graph/`; use `/pig inspect`, `/pig resume`, and `/pig delete` to manage it.
-- Checkpoints provide at-least-once recovery, not exactly-once external effects; retried mutations still need idempotency.
-- `readOnly` is a tool allowlist, not an operating-system sandbox. Run high-risk workflows in a container or OS sandbox.
-- Non-interactive runs require `policy.allowNonInteractive`; non-interactive mutations also require `policy.allowNonInteractiveMutations`.
-- Graph and node timeouts cancel cooperatively through an abort signal, so providers and tools must honor cancellation promptly.
-
-See [Architecture](docs/ARCHITECTURE.md) for implementation and failure semantics.
+At a `manual` pause, `acknowledge` records receipt of the failure. It leaves the business result as `needs_manual_repair`; it does not approve the candidate.
 
 ## Development
 
-```bash
+```sh
+npm run demo
 npm run check
 npm test
 npm run validate:examples
 ```
 
-- [Schema reference](docs/SCHEMA.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Changelog](CHANGELOG.md)
+The offline demo uses scripted agent responses with real compiler and test processes. For a live, non-interactive model run, use `npm run demo:live -- --model provider/model-id`.
+
+The [testing guide](docs/TESTING.md) describes coverage and prerequisites. CI runs on Windows and Linux with Node 22.19/24 and Python 3.14.
+
+## Constraints
+
+Gated nodes require isolated context and a serial graph. Only explicitly listed existing source files may change. Tests and configuration are protected by post-execution change detection.
+
+Checks are not an OS sandbox. Use trusted workspaces; passing configured checks does not prove complete correctness. Disk changes are retained without automatic rollback. Mid-repair crash recovery requires a new run after inspection; human-node resume uses pi-graph checkpoints.
+
+See [gate configuration](docs/GATE.md), the [graph schema](docs/SCHEMA.md), and [runtime architecture](docs/ARCHITECTURE.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Fork provenance and compatibility changes are documented in [UPSTREAM.md](UPSTREAM.md).

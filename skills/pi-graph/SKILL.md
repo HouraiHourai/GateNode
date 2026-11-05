@@ -3,7 +3,7 @@ name: pi-graph
 description: Build, run, and iterate on Pi agent graphs (pi-graph) — explicit-state multi-agent workflows with isolated/thread/shared context modes, schema-validated node handoffs, conditional routing, fan-out/barrier, durable checkpoints, and human approval gates. Use when the user wants to design a multi-agent workflow, set up a pi-graph, orchestrate specialized agents (researcher/writer/reviewer loops, parallel fan-out, idea tournaments, human-in-the-loop approval), define reliable structured outputs between nodes, author a graph JSON, or validate/run/resume/visualize a graph. Reach for this only when the task genuinely needs specialization, parallelism, independent review, or persistent role memory — otherwise prefer a single agent loop.
 ---
 
-# Pi Graph
+# GateNode / Pi Graph
 
 `pi-graph` orchestrates multi-agent workflows as **explicit state graphs**: nodes, schema-validated handoffs, static and conditional edges, reducers, supersteps, durable checkpoints, and interrupts. It is a Pi extension modeled on LangGraph's low-level orchestration.
 
@@ -26,18 +26,15 @@ If none apply, do not build a graph.
 
 ## Install & discover
 
-Install the published package:
+From the GateNode repository root:
 
 ```bash
-pi install npm:@shying/pi-graph
+npm ci --ignore-scripts
+npm run demo:prepare
+npm start
 ```
 
-For source development, run one of these from the repository root:
-
-```bash
-pi install .
-pi --no-extensions -e ./extensions/pi-graph.ts
-```
+Use `npm run python:prepare` instead of `demo:prepare` for Python inputs. The start script loads this checkout's extension. See [README](../../README.md) for input and output paths.
 
 Graphs are discovered from:
 
@@ -52,14 +49,14 @@ Every `agent` node declares a `context.mode`. Pick deliberately by role semantic
 
 | Mode | When to use | Memory |
 |---|---|---|
-| `isolated` | Independent judgment, parallel branches, one-shot experts, **reviewers**. | None private — passes via graph state / files only. |
-| `thread` | **Default** since 0.1.0. Same role revisits across loops (implement → fix → implement). | Reopens one private Pi JSONL history per `threadKey` in a new `AgentSession`. |
+| `isolated` | **Default.** Independent judgment, parallel branches, one-shot experts, **reviewers**. | None private — passes via graph state / files only. |
+| `thread` | Same role revisits across loops (implement → fix → implement). | Reopens one private Pi JSONL history per `threadKey` in a new `AgentSession`. |
 | `shared` | Several nodes share an auditable conversation (ReAct-style handoff). | Role-tagged messages appended to graph state. |
 
 How to choose:
 
 ```
-Role needs working memory preserved across loops   → thread (default)
+Role needs working memory preserved across loops   → thread
 Several nodes must share an auditable conversation → shared
 Node must judge independently or run in parallel   → isolated
 Plain deterministic transform (no model)           → set
@@ -72,6 +69,10 @@ Hard rules (the compiler warns/violates on these):
 - Nodes sharing a `threadKey` must share the same `cwd` and never run concurrently in one superstep.
 - `thread` retry creates a new `AgentSession` and re-appends to the same JSONL history → set `maxAttempts: 1` on thread nodes; let the graph loop do revisions.
 - A lost `thread` session fails recovery closed — the runner never silently resets role memory.
+
+## GateNode acceptance
+
+Agent nodes may declare `gate` to run fixed TypeScript or Python checks before committing success. Use explicit `context.mode: "isolated"`, graph `limits.maxConcurrency: 1`, and node `retry.maxAttempts: 1`. Gate owns bounded repair attempts; do not combine it with shared/thread context, barrier edges, or `onError.continue`. Error routing may target one human node. Acknowledging a failed run does not accept its code. See [gate configuration](../../docs/GATE.md) for presets, protected files, budgets, and recovery limits.
 
 ## Authoring workflow
 

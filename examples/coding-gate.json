@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 2,
+  "name": "coding-gate",
+  "description": "GateNode: deterministic code checks with at most three total attempts.",
+  "entry": "implementer",
+  "nodes": {
+    "implementer": {
+      "type": "agent",
+      "prompt": "{{input.task}}\nRead src/items.ts and tests/items.test.ts. Implement listItems pagination: optional page defaults to 1; optional pageSize defaults to items.length. Omitted arguments return all items; pages beyond the end return []; explicit non-positive or non-integer arguments throw RangeError. Empty input with omitted arguments returns []. Preserve the input array. You may edit only src/items.ts. Submit a brief summary after making the change; GateNode will run the checks.",
+      "thinking": "off",
+      "cwd": "demo/fixture",
+      "tools": ["read", "edit", "write"],
+      "loadExtensions": false,
+      "loadSkills": false,
+      "loadPromptTemplates": false,
+      "includeContextFiles": false,
+      "context": { "mode": "isolated" },
+      "retry": { "maxAttempts": 1 },
+      "gate": {
+        "checks": ["typecheck", "test"],
+        "maxAttempts": 3,
+        "writableFiles": ["src/items.ts"],
+        "timeoutMs": 30000,
+        "maxOutputBytes": 32768
+      },
+      "limits": { "timeoutMs": 300000, "maxTurns": 24, "maxCostUsd": 2 },
+      "onError": { "strategy": "route", "to": "manual", "output": "errors.implementer" }
+    },
+    "accepted": {
+      "type": "set",
+      "assign": [{ "path": "result", "value": { "status": "accepted", "message": "Code passed typecheck and the fixed pagination tests." } }]
+    },
+    "manual": {
+      "type": "human",
+      "kind": "select",
+      "pause": true,
+      "prompt": "GateNode stopped without accepting the code.\n{{errors.implementer.message}}\nInspect the report and workspace. Selecting acknowledge records receipt only; it does not approve the code. Start a new run after manual correction.",
+      "options": ["acknowledge"],
+      "output": "manual.receipt"
+    },
+    "unresolved": {
+      "type": "set",
+      "assign": [{ "path": "result", "value": { "status": "needs_manual_repair", "message": "Automatic acceptance failed; acknowledgement does not accept the code." } }]
+    }
+  },
+  "edges": [
+    { "from": "implementer", "to": "accepted" },
+    { "from": "accepted", "to": "__end__" },
+    { "from": "manual", "to": "unresolved" },
+    { "from": "unresolved", "to": "__end__" }
+  ],
+  "result": { "paths": ["result", "errors.implementer"] },
+  "limits": { "maxConcurrency": 1, "maxSteps": 8, "maxNodeRuns": 8, "timeoutMs": 360000, "maxCostUsd": 2 }
+}
